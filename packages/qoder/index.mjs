@@ -325,7 +325,7 @@ async function deviceSignIn(site) {
         // device-only one is shown by name, falling back to its id
         accountId: site.vpc ? `${email || uid} (${site.vpc})` : site.deviceOnly ? email || uid || name || dt.user_id : email || dt.user_id,
         uid,
-        email: site.deviceOnly ? "" : email,
+        email,
         name: name || dt.user_name || "",
         machineId,
         deviceToken: dt.token,
@@ -1940,8 +1940,8 @@ const SITES = {
     vpcDomain: "vpc.qoder.com.cn",
     models: CN_MODELS,
   },
-  // QwenWork's public cloud. Overridable with QWENWORK_* env vars and
-  // defaults.json (defaults.json alone here: this package ships none).
+  // QwenWork's public cloud. QWENWORK_ENT_DOMAIN (the enterprise preset)
+  // is the only variable read; the sites are these constants.
   qwenwork: {
     ...QWENWORK_COMMON,
     id: "qwenwork",

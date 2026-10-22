@@ -7,7 +7,6 @@
 // 503 catalog falls back where a 500 doesn't. Delete a hook and a test
 // here goes red.
 import { test, expect } from "bun:test"
-import { createPublicKey } from "node:crypto"
 
 const client = { app: { log: async () => {} }, auth: { set: async () => {} }, tui: { showToast: async () => {} }, config: { get: async () => ({ data: {} }) } }
 const load = async (fresh = "") => {
@@ -97,12 +96,6 @@ test("the model list goes out signed for the site: client type, scene, version, 
   try {
     const models = await ent.provider.models({ models: {} }, { auth: entCred() })
     expect(Object.keys(models)).toContain("flash")
-    const qoderKeys = createPublicKey(`-----BEGIN PUBLIC KEY-----
-MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDA8iMH5c02LilrsERw9t6Pv5Nc
-4k6Pz1EaDicBMpdpxKduSZu5OANqUq8er4GM95omAGIOPOh+Nx0spthYA2BqGz+l
-6HRkPJ7S236FZz73In/KVuLnwI8JJ2CbuJap8kvheCCZpmAWpb/cPx/3Vr/J6I17
-XcW+ML9FoCI6AOvOzwIDAQAB
------END PUBLIC KEY-----`).export({ format: "jwk" })
     // QwenWork's RSA key is byte-equal to Qoder's (checked: it is), so the
     // blob's key can't tell them apart — the headers can
     expect(header(0, "Cosy-ClientType")).toBe("6")
@@ -115,8 +108,8 @@ XcW+ML9FoCI6AOvOzwIDAQAB
   }
 })
 
-test("a chat goes out signed for the site and to the enterprise's own host", async () => {
-  const { pub } = await load()
+test("a chat goes out signed and written for the site: headers and body", async () => {
+  const { mod, pub } = await load()
   const restore = mock()
   // the full answer an SSE chat round needs: skipped, as ask() streams; a
   // 400 from upstream exercises the signing path and returns an error
@@ -125,16 +118,8 @@ test("a chat goes out signed for the site and to the enterprise's own host", asy
     return new Response(JSON.stringify({ code: "400", message: "no" }), { status: 400, headers: { "Content-Type": "application/json" } })
   }
   try {
-    const res = await pub.loader?.() ?? null
-    // drive a chat through the plugin's fetch: the plugin exposes it via
-    // the auth hook's loader — fetch is what signs. Use the exported
-    // provider fetch through a minimal fetch call.
-    const mod = await import("./index.mjs")
-    const plugin = await mod.QwenWorkAuthPlugin({ client, directory: process.cwd(), worktree: process.cwd(), $: undefined, project: {} })
-    // the loader builds the signing fetch; grab it with a live-looking auth
-    const cred = { type: "oauth", uid: "u1", email: "a@b.c", name: "A", machineId: "m1", access: "a", refresh: "r", expires: Date.now() + 3_600_000, deviceToken: "dt", deviceRefresh: "dtr" }
-    const l = await plugin.auth.loader(async () => cred, { models: {} })
-    expect(typeof l.fetch).toBe("function")
+    const cred = { type: "oauth", uid: "u1", email: "a@b.c", name: "A", machineId: "m1", access: "a", refresh: "r", expires: Date.now() + 3_600_000, deviceChat: true, deviceToken: "dt", deviceRefresh: "dtr" }
+    const l = await pub.auth.loader(async () => cred, { models: {} })
     const chatRes = await l.fetch("https://gateway.qwenwork.cn/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -143,11 +128,48 @@ test("a chat goes out signed for the site and to the enterprise's own host", asy
     expect([400, 502]).toContain(chatRes.status) // the mocked upstream's answer, surfaced
     const chatReq = seen.find((r) => r.url.includes("/agent_chat_generation"))
     expect(chatReq).toBeDefined()
+    // signed for the site
     expect(chatReq.headers["Cosy-ClientType"]).toBe("6")
     expect(chatReq.headers["Cosy-Scene"]).toBe("qwork")
     expect(chatReq.headers["Cosy-Business-Product"]).toBe("qoder_work")
     expect(chatReq.headers["Cosy-Version"]).toBe("1.1.59")
   } finally {
+    restore()
+  }
+})
+
+test("the chat body carries the site's session type, business product and system prompt", async () => {
+  const { pub } = await load()
+  const restore = mock()
+  answer = async (url) => {
+    if (url.includes("/model/list")) return new Response(JSON.stringify({ qwork: [{ key: "flash", display_name: "标准", is_vl: false, is_reasoning: false, max_input_tokens: 4096 }] }), { status: 200 })
+    return new Response(JSON.stringify({ code: "400", message: "no" }), { status: 400, headers: { "Content-Type": "application/json" } })
+  }
+  // capture the body too
+  const savedBody = globalThis.fetch
+  const bodies = []
+  globalThis.fetch = async (url, init) => {
+    seen.push({ url: String(url), headers: { ...(init?.headers ?? {}) } })
+    if (init?.body) bodies.push(String(init.body))
+    return answer(String(url), init)
+  }
+  try {
+    const cred = { type: "oauth", uid: "u1", email: "a@b.c", name: "A", machineId: "m1", access: "a", refresh: "r", expires: Date.now() + 3_600_000, deviceChat: true, deviceToken: "dt", deviceRefresh: "dtr" }
+    const l = await pub.auth.loader(async () => cred, { models: {} })
+    await l.fetch("https://gateway.qwenwork.cn/v1/chat/completions", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "flash", messages: [{ role: "user", content: "hi" }], max_tokens: 5 }),
+    })
+    const { decodeBody } = (await import("./index.mjs"))._internal
+    const chatBody = bodies.map((b) => { try { return JSON.parse(decodeBody(b)) } catch { return null } }).find((x) => x && x.session_type)
+    expect(chatBody).toBeDefined()
+    expect(chatBody.session_type).toBe("qoder_work")            // not "app"
+    expect(chatBody.business.product).toBe("qoder_work")
+    expect(chatBody.business.version).toBe("1.1.59")
+    expect(chatBody.system?.[0]?.text).toContain("You are QwenWork")
+    expect(chatBody.system?.[0]?.text).not.toContain("Qoder")
+  } finally {
+    globalThis.fetch = savedBody
     restore()
   }
 })
@@ -215,4 +237,97 @@ test("the public plugin offers no PAT and no check-in", async () => {
   expect(pub.auth.methods.some((m) => m.label.includes("PAT"))).toBe(false)
   expect(ent.auth.methods.some((m) => m.label.includes("PAT"))).toBe(false)
   expect(pub.auth.checkin).toBeUndefined()
+})
+
+
+test("usage rotates a refused device token and stays signed in; a refused refresh expires", async () => {
+  const { ent } = await load()
+  const restore = mock()
+  let accountAnswers = 0
+  let refreshes = 0
+  let refuseRefresh = false
+  answer = async (url) => {
+    if (url.includes("/api/v1/deviceToken/refresh")) {
+      refreshes += 1
+      if (refuseRefresh) return new Response(JSON.stringify({ code: "401" }), { status: 401 })
+      return new Response(JSON.stringify({ token: "dt2", refresh_token: "dtr2", expires_in: 3600 }), { status: 200 })
+    }
+    if (url.includes("/api/v1/adapter/user/account-context")) {
+      accountAnswers += 1
+      // the live device token is refused once, the rotated one succeeds
+      if (accountAnswers === 1) return new Response("{}", { status: 401 })
+      return new Response(JSON.stringify({ data: { plan: { name: "Enterprise" }, quota: { total: 100, remaining: 60 } } }), { status: 200 })
+    }
+    return new Response("{}", { status: 404 })
+  }
+  // a live access token: fresh() doesn't renew; the 401 has to be rotated through
+  const live = { ...entCred(), access: "dt", expires: Date.now() + 3_600_000 }
+  try {
+    const usage = await ent.auth.usage(async () => live)
+    expect(usage.signIn).not.toBe("expired")
+    expect(usage.plan).toBe("Enterprise")
+    expect(refreshes).toBe(1)          // the rotation refreshed the device token
+    expect(accountAnswers).toBe(2)     // refused, then read
+    // and when the refresh itself is refused, the account is expired
+    refuseRefresh = true
+    accountAnswers = 0
+    const gone = await ent.auth.usage(async () => ({ ...live, deviceToken: "dt3", expires: Date.now() + 3_600_000 }))
+    expect(gone.signIn).toBe("expired")
+  } finally {
+    restore()
+  }
+})
+
+test("the device token refresh is asked with target: 'c'", async () => {
+  const { ent } = await load()
+  const restore = mock()
+  const bodies = []
+  const saved = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    seen.push({ url: String(url), headers: { ...(init?.headers ?? {}) } })
+    if (init?.body) bodies.push(String(init.body))
+    if (String(url).includes("/api/v1/deviceToken/refresh")) return new Response(JSON.stringify({ token: "dt2", refresh_token: "dtr2", expires_in: 3600 }), { status: 200 })
+    if (String(url).includes("/api/v1/adapter/user/account-context")) return new Response(JSON.stringify({ data: { plan: { name: "Enterprise" }, quota: { total: 100, remaining: 60 } } }), { status: 200 })
+    return new Response("{}", { status: 404 })
+  }
+  try {
+    // an expired access token: fresh() renews through refreshDevice
+    const expired = { ...entCred(), expires: Date.now() - 1_000 }
+    const usage = await ent.auth.usage(async () => expired)
+    expect(usage.plan).toBe("Enterprise")
+    const refreshBody = bodies.map((b) => { try { return JSON.parse(b) } catch { return null } }).find((x) => x && x.refresh_token)
+    expect(refreshBody).toBeDefined()
+    expect(refreshBody.target).toBe("c")   // QwenWork's refresh target, not Qoder's absent one
+  } finally {
+    globalThis.fetch = saved
+    restore()
+  }
+})
+
+test("a queued chat's status request is signed for the site", async () => {
+  const { pub } = await load()
+  const restore = mock()
+  // the first chat answer is a queue refusal, as Qoder's own flow sees one;
+  // the queue status asked afterwards must carry the site's headers
+  answer = async (url) => {
+    if (url.includes("/model/list")) return new Response(JSON.stringify({ qwork: [{ key: "flash", display_name: "标准", is_vl: false, is_reasoning: false, max_input_tokens: 4096 }] }), { status: 200 })
+    if (url.includes("/agent_chat_generation")) return new Response(JSON.stringify({ code: "10605", message: "request queued", data: { isQueued: true, queueType: "global", modelKey: "flash", retryAfterSeconds: 0 } }), { status: 403, headers: { "Content-Type": "application/json" } })
+    if (url.includes("/queue/status")) return new Response(JSON.stringify({ isQueued: false, retryAfterSeconds: 0 }), { status: 200, headers: { "Content-Type": "application/json" } })
+    return new Response("{}", { status: 404 })
+  }
+  try {
+    const cred = { type: "oauth", uid: "u1", email: "a@b.c", name: "A", machineId: "m1", access: "a", refresh: "r", expires: Date.now() + 3_600_000, deviceChat: true, deviceToken: "dt", deviceRefresh: "dtr" }
+    const l = await pub.auth.loader(async () => cred, { models: {} })
+    await l.fetch("https://gateway.qwenwork.cn/v1/chat/completions", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "flash", messages: [{ role: "user", content: "hi" }], max_tokens: 5 }),
+    })
+    const statusReq = seen.find((r) => r.url.includes("/queue/status"))
+    expect(statusReq).toBeDefined()
+    expect(statusReq.headers["Cosy-ClientType"]).toBe("6")
+    expect(statusReq.headers["Cosy-Scene"]).toBe("qwork")
+    expect(statusReq.headers["Cosy-Version"]).toBe("1.1.59")
+  } finally {
+    restore()
+  }
 })
