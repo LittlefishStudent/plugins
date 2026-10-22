@@ -1,4 +1,4 @@
-# @magpie-community/opencode-qwenwork-enterprise-auth
+# @magpie-community/opencode-qwenwork-auth
 
 千问办公（QwenWork）接入 OpenCode 和 magpie。
 
@@ -51,9 +51,11 @@ magpie plugin add @magpie-community/opencode-qwenwork-enterprise
 ```sh
 QWENWORK_ENT_DOMAIN=your-company.vpc.qwenwork.cn   # 预设企业域名（登录不再询问）
 QWENWORK_WEB / QWENWORK_OPENAPI / QWENWORK_API     # 公有云端点（默认 gateway.qwenwork.cn）
-QWENWORK_ENT_WEB / ...                             # 企业端点（一般不用改，域名覆盖即可）
-QWENWORK_ENT_CLIENT_ID / QWENWORK_ENT_RSA_PUBLIC_KEY / QWENWORK_ENT_COSY_VERSION
 ```
+
+`QWENWORK_ENT_*` 只用于登录落在企业域名上所需的凭证项
+（`CLIENT_ID` / `RSA_PUBLIC_KEY` / `COSY_VERSION`）；企业账号的所有请求都走它自己的域名，
+登录前占位列表用的 `QWENWORK_ENT_WEB/OPENAPI/API` 不会被企业账号使用。
 
 `defaults.json` 与环境变量同名的键也能覆盖。
 

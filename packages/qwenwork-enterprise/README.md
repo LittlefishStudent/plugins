@@ -1,4 +1,4 @@
-# @magpie-community/opencode-qwenwork-enterprise-auth
+# @magpie-community/opencode-qwenwork-auth
 
 QwenWork (千问办公) for OpenCode and magpie.
 
@@ -59,10 +59,15 @@ Every endpoint can be overridden: `QWENWORK_*` for the public cloud,
 `QWENWORK_ENT_*` for the enterprise edition.
 
 ```sh
-QWENWORK_ENT_DOMAIN=your-company.vpc.qwenwork.cn   # preset the domain
+QWENWORK_ENT_DOMAIN=your-company.vpc.qwenwork.cn   # preset the domain (sign-in then asks nothing)
 QWENWORK_WEB / QWENWORK_OPENAPI / QWENWORK_API     # public endpoints
-QWENWORK_ENT_CLIENT_ID / QWENWORK_ENT_RSA_PUBLIC_KEY / QWENWORK_ENT_COSY_VERSION
 ```
+
+`QWENWORK_ENT_*` names only the pieces the sign-in needs when it lands on an
+enterprise domain — `CLIENT_ID`, `RSA_PUBLIC_KEY`, `COSY_VERSION` — and an
+enterprise account always uses its own domain for every call: the
+`QWENWORK_ENT_WEB/OPENAPI/API` placeholders of the pre-sign-in listing are
+never used for one.
 
 ## Usage display
 

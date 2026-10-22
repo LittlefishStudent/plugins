@@ -1,24 +1,22 @@
-// QwenWork (千问办公) for magpie / OpenCode — two providers from one package:
+// QwenWork (千问办公) for magpie / OpenCode — one package, two providers:
 //
-//   qwenwork              the public cloud (gateway.qwenwork.cn), exactly as
-//                         the upstream plugin served it
-//   qwenwork-enterprise   the enterprise flagship (旗舰版 / VPC) edition: the
-//                         sign-in asks for the enterprise's own domain (its
-//                         web / openapi / api faces all live on that one
-//                         host), and the device flow there sends no
-//                         redirect_uri — the desktop client's enterprise mode
-//                         behaves the same.
+//   qwenwork              the public cloud (gateway.qwenwork.cn), as
+//                         harwinvoid/magpie-plugin-qwenwork served it
+//   qwenwork-enterprise   the enterprise flagship (企业旗舰版, VPC / private
+//                         deployment): the sign-in asks for the enterprise's
+//                         own domain (its web / openapi / api faces all live
+//                         on that one host), and the device flow there sends
+//                         no redirect_uri — the desktop client's enterprise
+//                         mode behaves the same.
 //
-// Chat completions are rewritten as QwenWork's own agent_chat_generation
-// request by the vendored adapter (vendor/qoder.mjs): the host's tools ride
-// along, tool calls come back structured, and the host agent keeps its loop.
-// COSY signing, the request codec and the endpoints stay in the adapter.
-//
-// Endpoints can be overridden with QWENWORK_* (public) and QWENWORK_ENT_*
-// (enterprise) environment variables; the enterprise domain can be preset
-// with QWENWORK_ENT_DOMAIN so sign-in asks nothing.
-import { createPublicKey } from 'node:crypto'
+// The protocol is the qoder package's, through its hooks: QwenWork speaks the
+// same COSY-signed agent_chat_generation, with its own scene, client id and
+// RSA key. Every endpoint can be overridden with QWENWORK_* environment
+// variables and defaults.json; QWENWORK_ENT_DOMAIN presets the enterprise
+// domain so its sign-in asks nothing.
 import { readFileSync } from 'node:fs'
+import { protocol } from '@magpie-community/opencode-qoder-auth'
+const { makePlugin, deviceSignIn } = protocol
 
 const defaults = JSON.parse(readFileSync(new URL('./defaults.json', import.meta.url), 'utf8'))
 // The provider's picture, as magpie reads it: a data:image URI on the auth hook.
@@ -51,15 +49,21 @@ const num = (v) => {
 }
 
 // qwenworkUsage reads the account's credits for magpie's usage bar, from the
-// account-context the sign-in already reads: quota {total, used, remaining,
-// exceeded} and plan {name, next_refresh / next_due}.
+// account-context the sign-in already reads — on the account's own host: an
+// enterprise account never sends its token anywhere else. quota {total,
+// used, remaining} and plan {name, next_refresh / next_due}.
 function qwenworkUsage(openapi, who) {
   return async (getAuth) => {
     let signIn = 'kept'
     try {
       const a = await getAuth()
-      if (a?.type !== 'oauth' || !String(a.access ?? '').trim() || (a.expires > 0 && a.expires <= Date.now())) return { error: `${who}: not signed in`, signIn: 'expired' }
-      const res = await fetch(`${openapi}/api/v1/adapter/user/account-context?include=user,plan,quota`, {
+      if (a?.type !== 'oauth' || !String(a.access ?? '').trim()) return { error: `${who}: not signed in`, signIn: 'expired' }
+      // an expired token with a refresh pair is renewable, not lapsed: a
+      // usage poll before magpie's auth.refresh doesn't mark it expired
+      if (a.expires > 0 && a.expires <= Date.now() && !String(a.refresh ?? '').trim()) return { error: `${who}: the sign-in lapsed — sign in again`, signIn: 'expired' }
+      // the enterprise account's host, never the public cloud's
+      const base = a.vpcDomain ? `https://${a.vpcDomain}` : openapi
+      const res = await fetch(`${base}/api/v1/adapter/user/account-context?include=user,plan,quota`, {
         headers: { Accept: 'application/json', Authorization: `Bearer ${a.access}` },
         signal: AbortSignal.timeout(20_000),
       })
@@ -82,15 +86,20 @@ function qwenworkUsage(openapi, who) {
       if (!out.windows) out.error = `${who}: the account reports no credits`
       return out
     } catch (e) {
+      // an account with a refresh token is renewable: a usage poll before
+      // its renewal doesn't lapse it
       return { error: String(e?.message ?? e), signIn }
     }
   }
 }
 
 // The models the public cloud lists today, as the enterprise fallback: the
-// flagship edition serves the same qwork scene, but its model-catalog service
-// answers 503 ("Model catalog is unavailable"), so fetchListing falls back to
-// this (see vendor/qoder.mjs).
+// flagship serves the same qwork scene but deploys no catalog service
+// (/algo/api/v2/model/list answers 503 "Model catalog is unavailable" on a
+// real deployment), so fetchListing falls back to this. The is_vl /
+// is_reasoning flags and the 131072 context are copied from the public
+// cloud's list, not checked against a flagship; the flagship's own models,
+// when it deploys a catalog, will replace this at sign-in.
 const QWORK_MODELS = [
   { id: 'flash', name: '标准' },
   { id: 'pro', name: '高级' },
@@ -106,14 +115,13 @@ const QWORK_FALLBACK_LISTING = {
 
 const SYSTEM_PROMPT = 'You are QwenWork (qw), a helpful assistant. Use the instructions below and the tools available to you to assist the user.'
 
-// The shared shape: everything the vendored makePlugin takes, plus the pieces
-// this file wires (usage, icon).
-function baseSite({ id, name, setting, web, openapi, api, redirect, fallbackModels }) {
-  const rsa = setting('RSA_PUBLIC_KEY').replaceAll('\\n', '\n')
-  try { if (createPublicKey(rsa).asymmetricKeyType !== 'rsa') throw new Error() } catch { throw new Error('RSA_PUBLIC_KEY must be an RSA public key in PEM form') }
+// The shared shape, on the qoder protocol's hooks.
+function baseSite({ id, name, setting, web, openapi, api, redirect, fallbackModels, enterpriseDomain, vpc }) {
   return {
-    id, name, clientId: setting('CLIENT_ID'), web, openapi, api, rsaKey: rsa,
-    cosyVersion: setting('COSY_VERSION'), redirect,
+    id, name, clientId: setting('CLIENT_ID'), web, openapi, api,
+    rsaKey: setting('RSA_PUBLIC_KEY'),
+    cosyVersion: setting('COSY_VERSION'),
+    redirect,
     deviceOnly: true, deviceRefreshTarget: 'c', modelScene: 'qwork', listAllModels: true,
     clientType: '6', businessProduct: 'qoder_work', sessionType: 'qoder_work',
     userInfoPath: '/api/v1/adapter/user/account-context?include=user,plan,quota,page,data_sharing',
@@ -121,6 +129,8 @@ function baseSite({ id, name, setting, web, openapi, api, redirect, fallbackMode
     fallbackModels,
     models: QWORK_MODELS.map((m) => ({ ...m })),
     systemPrompt: SYSTEM_PROMPT,
+    ...(enterpriseDomain ? { enterpriseDomain } : {}),
+    ...(vpc ? { vpc } : {}),
   }
 }
 
@@ -135,7 +145,6 @@ export async function QwenWorkAuthPlugin({ client }) {
     redirect: 'qwenwork-cn://',
     fallbackModels: undefined,
   })
-  const { makePlugin } = await import('./vendor/qoder.mjs')
   const plugin = await makePlugin(site)({ client })
   plugin.auth.usage = qwenworkUsage(site.openapi, 'QwenWork')
   plugin.auth.icon = pluginIcon
@@ -146,7 +155,8 @@ export async function QwenWorkAuthPlugin({ client }) {
 
 // enterpriseDomain reads what the user entered as their enterprise's address,
 // as the desktop client's enterprise mode reads its endpoint override: a bare
-// host, or an https:// address with no path. Anything else names none.
+// host, or an https:// address with no path. Loopback- and intranet-looking
+// names are refused too. Anything else names none.
 function enterpriseDomain(input) {
   let e = String(input ?? '').trim().toLowerCase()
   if (!e) return undefined
@@ -159,15 +169,15 @@ function enterpriseDomain(input) {
     e = u.hostname
   }
   if (/^(\d{1,3}\.){3}\d{1,3}$/.test(e)) return undefined // a bare IP is not a domain
+  if (/^(localhost|.*\.localhost|.*\.local|.*\.internal)$/.test(e)) return undefined // loopback / intranet suffixes
   if (!/^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(e)) return undefined
   return e
 }
 
 export async function QwenWorkEnterpriseAuthPlugin({ client }) {
-  const { makePlugin, vendorDeviceSignIn } = await import('./vendor/qoder.mjs')
   const setting = makeSetting('QWENWORK_ENT_')
   const origin = originOf(setting)
-  const presetDomain = enterpriseDomain(process.env.QWENWORK_ENT_DOMAIN ?? process.env.QWENWORK_ENTERPRISE_DOMAIN ?? '')
+  const presetDomain = enterpriseDomain(process.env.QWENWORK_ENT_DOMAIN ?? '')
 
   // The site magpie's plugin host builds: the public cloud by default, so the
   // provider and its models are listed before anyone signs in; the enterprise
@@ -178,14 +188,13 @@ export async function QwenWorkEnterpriseAuthPlugin({ client }) {
     redirect: 'qwenwork-cn://',
     fallbackModels: QWORK_FALLBACK_LISTING,
   })
-  const enterpriseSiteFor = (domain) => ({
-    ...baseSite({
-      id: 'qwenwork-enterprise', name: 'QwenWork 企业版', setting,
-      web: `https://${domain}`, openapi: `https://${domain}`, api: `https://${domain}`,
-      redirect: '', // the flagship's device flow takes no redirect_uri
-      fallbackModels: QWORK_FALLBACK_LISTING,
-    }),
-    enterpriseDomain: domain, // the account carries it: chats go to the enterprise host
+  const enterpriseSiteFor = (domain) => baseSite({
+    id: 'qwenwork-enterprise', name: 'QwenWork 企业版', setting,
+    web: `https://${domain}`, openapi: `https://${domain}`, api: `https://${domain}`,
+    redirect: '', // the flagship's device flow takes no redirect_uri
+    fallbackModels: QWORK_FALLBACK_LISTING,
+    enterpriseDomain: domain,
+    vpc: domain, // the account is named "<email|uid> (<domain>)", as qoder's VPC accounts are, and every call routes there
   })
 
   const plugin = await makePlugin(site)({ client })
@@ -205,7 +214,7 @@ export async function QwenWorkEnterpriseAuthPlugin({ client }) {
     authorize: (inputs) => {
       const domain = presetDomain || enterpriseDomain(inputs?.domain)
       if (!domain) throw new Error('请输入企业域名（或设置 QWENWORK_ENT_DOMAIN 环境变量）')
-      return vendorDeviceSignIn(enterpriseSiteFor(domain))
+      return deviceSignIn(enterpriseSiteFor(domain))
     },
   })
 

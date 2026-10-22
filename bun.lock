@@ -1,0 +1,229 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "magpie-community-plugins",
+    },
+    "packages/aider": {
+      "name": "@magpie-community/agent-aider",
+      "version": "0.1.1",
+    },
+    "packages/antigravity-cloak": {
+      "name": "@magpie-community/middleware-antigravity-cloak",
+      "version": "0.1.0",
+    },
+    "packages/autoclaw": {
+      "name": "@magpie-community/opencode-autoclaw-auth",
+      "version": "0.2.4",
+    },
+    "packages/block-patterns": {
+      "name": "@magpie-community/middleware-block-patterns",
+      "version": "0.1.1",
+    },
+    "packages/calc": {
+      "name": "@magpie-community/tools-calc",
+      "version": "0.1.0",
+    },
+    "packages/cline": {
+      "name": "@magpie-community/opencode-cline-auth",
+      "version": "0.1.10",
+    },
+    "packages/codearts": {
+      "name": "@magpie-community/opencode-codearts-auth",
+      "version": "0.2.1",
+    },
+    "packages/codex-history": {
+      "name": "@magpie-community/middleware-codex-history",
+      "version": "0.1.1",
+    },
+    "packages/commandcode": {
+      "name": "@magpie-community/opencode-commandcode-auth",
+      "version": "0.1.14",
+    },
+    "packages/cursor": {
+      "name": "@magpie-community/opencode-cursor-auth",
+      "version": "0.2.19",
+    },
+    "packages/devin": {
+      "name": "@magpie-community/opencode-devin-auth",
+      "version": "0.1.23",
+    },
+    "packages/factory": {
+      "name": "@magpie-community/opencode-factory-auth",
+      "version": "0.1.37",
+    },
+    "packages/grok": {
+      "name": "@magpie-community/opencode-grok-auth",
+      "version": "0.2.0",
+    },
+    "packages/kimi-desktop": {
+      "name": "@magpie-community/agent-kimi-desktop",
+      "version": "0.1.1",
+    },
+    "packages/kimi-work": {
+      "name": "@magpie-community/opencode-kimi-work-auth",
+      "version": "0.1.5",
+    },
+    "packages/kiro": {
+      "name": "@magpie-community/opencode-kiro-auth",
+      "version": "0.1.14",
+    },
+    "packages/mimo": {
+      "name": "@magpie-community/opencode-mimo-auth",
+      "version": "0.1.9",
+    },
+    "packages/minimax": {
+      "name": "@magpie-community/opencode-minimax-auth",
+      "version": "0.1.3",
+    },
+    "packages/model-map": {
+      "name": "@magpie-community/middleware-model-map",
+      "version": "0.1.1",
+    },
+    "packages/opendesign": {
+      "name": "@magpie-community/opencode-opendesign-auth",
+      "version": "0.1.6",
+    },
+    "packages/param-override": {
+      "name": "@magpie-community/middleware-param-override",
+      "version": "0.1.0",
+    },
+    "packages/pig": {
+      "name": "@magpie-community/agent-pig",
+      "version": "0.1.0",
+    },
+    "packages/qoder": {
+      "name": "@magpie-community/opencode-qoder-auth",
+      "version": "0.2.28",
+    },
+    "packages/qwenwork-enterprise": {
+      "name": "@magpie-community/opencode-qwenwork-auth",
+      "version": "0.1.0",
+      "dependencies": {
+        "@magpie-community/opencode-qoder-auth": "0.2.28",
+      },
+    },
+    "packages/raccoon": {
+      "name": "@magpie-community/opencode-raccoon-auth",
+      "version": "0.1.2",
+    },
+    "packages/reserve": {
+      "name": "@magpie-community/middleware-reserve",
+      "version": "0.1.0",
+    },
+    "packages/system-prompt": {
+      "name": "@magpie-community/middleware-system-prompt",
+      "version": "0.1.0",
+    },
+    "packages/think-tags": {
+      "name": "@magpie-community/middleware-think-tags",
+      "version": "0.1.1",
+    },
+    "packages/trae": {
+      "name": "@magpie-community/opencode-trae-auth",
+      "version": "0.2.18",
+    },
+    "packages/type4me": {
+      "name": "@magpie-community/agent-type4me",
+      "version": "0.1.0",
+    },
+    "packages/usage": {
+      "name": "@magpie-community/page-usage",
+      "version": "0.1.1",
+    },
+    "packages/word-guard": {
+      "name": "@magpie-community/middleware-word-guard",
+      "version": "0.1.1",
+    },
+    "packages/workbuddy": {
+      "name": "@magpie-community/opencode-workbuddy-auth",
+      "version": "0.1.29",
+    },
+    "packages/zcode": {
+      "name": "@magpie-community/opencode-zcode-auth",
+      "version": "0.1.20",
+    },
+    "packages/zed": {
+      "name": "@magpie-community/opencode-zed-auth",
+      "version": "0.1.11",
+    },
+    "packages/zen-free": {
+      "name": "@magpie-community/opencode-zen-free-auth",
+      "version": "0.1.13",
+    },
+  },
+  "packages": {
+    "@magpie-community/agent-aider": ["@magpie-community/agent-aider@workspace:packages/aider"],
+
+    "@magpie-community/agent-kimi-desktop": ["@magpie-community/agent-kimi-desktop@workspace:packages/kimi-desktop"],
+
+    "@magpie-community/agent-pig": ["@magpie-community/agent-pig@workspace:packages/pig"],
+
+    "@magpie-community/agent-type4me": ["@magpie-community/agent-type4me@workspace:packages/type4me"],
+
+    "@magpie-community/middleware-antigravity-cloak": ["@magpie-community/middleware-antigravity-cloak@workspace:packages/antigravity-cloak"],
+
+    "@magpie-community/middleware-block-patterns": ["@magpie-community/middleware-block-patterns@workspace:packages/block-patterns"],
+
+    "@magpie-community/middleware-codex-history": ["@magpie-community/middleware-codex-history@workspace:packages/codex-history"],
+
+    "@magpie-community/middleware-model-map": ["@magpie-community/middleware-model-map@workspace:packages/model-map"],
+
+    "@magpie-community/middleware-param-override": ["@magpie-community/middleware-param-override@workspace:packages/param-override"],
+
+    "@magpie-community/middleware-reserve": ["@magpie-community/middleware-reserve@workspace:packages/reserve"],
+
+    "@magpie-community/middleware-system-prompt": ["@magpie-community/middleware-system-prompt@workspace:packages/system-prompt"],
+
+    "@magpie-community/middleware-think-tags": ["@magpie-community/middleware-think-tags@workspace:packages/think-tags"],
+
+    "@magpie-community/middleware-word-guard": ["@magpie-community/middleware-word-guard@workspace:packages/word-guard"],
+
+    "@magpie-community/opencode-autoclaw-auth": ["@magpie-community/opencode-autoclaw-auth@workspace:packages/autoclaw"],
+
+    "@magpie-community/opencode-cline-auth": ["@magpie-community/opencode-cline-auth@workspace:packages/cline"],
+
+    "@magpie-community/opencode-codearts-auth": ["@magpie-community/opencode-codearts-auth@workspace:packages/codearts"],
+
+    "@magpie-community/opencode-commandcode-auth": ["@magpie-community/opencode-commandcode-auth@workspace:packages/commandcode"],
+
+    "@magpie-community/opencode-cursor-auth": ["@magpie-community/opencode-cursor-auth@workspace:packages/cursor"],
+
+    "@magpie-community/opencode-devin-auth": ["@magpie-community/opencode-devin-auth@workspace:packages/devin"],
+
+    "@magpie-community/opencode-factory-auth": ["@magpie-community/opencode-factory-auth@workspace:packages/factory"],
+
+    "@magpie-community/opencode-grok-auth": ["@magpie-community/opencode-grok-auth@workspace:packages/grok"],
+
+    "@magpie-community/opencode-kimi-work-auth": ["@magpie-community/opencode-kimi-work-auth@workspace:packages/kimi-work"],
+
+    "@magpie-community/opencode-kiro-auth": ["@magpie-community/opencode-kiro-auth@workspace:packages/kiro"],
+
+    "@magpie-community/opencode-mimo-auth": ["@magpie-community/opencode-mimo-auth@workspace:packages/mimo"],
+
+    "@magpie-community/opencode-minimax-auth": ["@magpie-community/opencode-minimax-auth@workspace:packages/minimax"],
+
+    "@magpie-community/opencode-opendesign-auth": ["@magpie-community/opencode-opendesign-auth@workspace:packages/opendesign"],
+
+    "@magpie-community/opencode-qoder-auth": ["@magpie-community/opencode-qoder-auth@workspace:packages/qoder"],
+
+    "@magpie-community/opencode-qwenwork-auth": ["@magpie-community/opencode-qwenwork-auth@workspace:packages/qwenwork-enterprise"],
+
+    "@magpie-community/opencode-raccoon-auth": ["@magpie-community/opencode-raccoon-auth@workspace:packages/raccoon"],
+
+    "@magpie-community/opencode-trae-auth": ["@magpie-community/opencode-trae-auth@workspace:packages/trae"],
+
+    "@magpie-community/opencode-workbuddy-auth": ["@magpie-community/opencode-workbuddy-auth@workspace:packages/workbuddy"],
+
+    "@magpie-community/opencode-zcode-auth": ["@magpie-community/opencode-zcode-auth@workspace:packages/zcode"],
+
+    "@magpie-community/opencode-zed-auth": ["@magpie-community/opencode-zed-auth@workspace:packages/zed"],
+
+    "@magpie-community/opencode-zen-free-auth": ["@magpie-community/opencode-zen-free-auth@workspace:packages/zen-free"],
+
+    "@magpie-community/page-usage": ["@magpie-community/page-usage@workspace:packages/usage"],
+
+    "@magpie-community/tools-calc": ["@magpie-community/tools-calc@workspace:packages/calc"],
+  }
+}
