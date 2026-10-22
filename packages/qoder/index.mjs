@@ -81,21 +81,24 @@ function machineOS() {
 
 // userBlob is the account as the envelope carries it: AES-128-CBC under a
 // fresh key that is its own IV, the key wrapped with Qoder's RSA key.
-function userBlob(u) {
+// userBlob and cosyHeaders take the site's own key and version when it has
+// them (another QwenWork-like service on the same protocol), else Qoder's.
+function userBlob(u, rsaKey = RSA_KEY) {
   const raw = JSON.stringify({ uid: u.uid, aid: "", name: u.name ?? "", email: u.email ?? "", security_oauth_token: u.access })
   const key = Buffer.from(hexID().slice(0, 16))
   const c = createCipheriv("aes-128-cbc", key, key)
   const info = Buffer.concat([c.update(raw, "utf8"), c.final()]).toString("base64")
-  const wrapped = publicEncrypt({ key: RSA_KEY, padding: constants.RSA_PKCS1_PADDING }, key).toString("base64")
+  const wrapped = publicEncrypt({ key: rsaKey, padding: constants.RSA_PKCS1_PADDING }, key).toString("base64")
   return { info, key: wrapped }
 }
 
 // cosyHeaders signs a call to url whose body, in its wire form, is body.
-function cosyHeaders(url, u, body, ts = Math.floor(Date.now() / 1000)) {
-  if (!u?.machineId) throw new Error("Qoder: the account has no machine id; sign in again")
-  const blob = userBlob(u)
+function cosyHeaders(url, u, body, site, ts = Math.floor(Date.now() / 1000)) {
+  if (!u?.machineId) throw new Error(`${site?.name ?? "Qoder"}: the account has no machine id; sign in again`)
+  const cosyVersion = site?.cosyVersion ?? COSY_VERSION
+  const blob = userBlob(u, site?.rsaKey)
   const payload = Buffer.from(
-    JSON.stringify({ version: "v1", requestId: hexID(), info: blob.info, cosyVersion: COSY_VERSION, ideVersion: "" }),
+    JSON.stringify({ version: "v1", requestId: hexID(), info: blob.info, cosyVersion, ideVersion: "" }),
   ).toString("base64")
   let path = new URL(url).pathname
   if (path.startsWith("/algo")) path = path.slice(5)
@@ -106,10 +109,10 @@ function cosyHeaders(url, u, body, ts = Math.floor(Date.now() / 1000)) {
     "Accept-Encoding": "identity",
     "Content-Type": "application/json",
     Authorization: `Bearer COSY.${payload}.${sig}`,
-    "Cosy-Business-Product": "app",
+    "Cosy-Business-Product": site?.businessProduct ?? "app",
     "Cosy-Business-Type": "agent",
     "Cosy-ClientIp": m,
-    "Cosy-ClientType": "10",
+    "Cosy-ClientType": site?.clientType ?? "10",
     "Cosy-Data-Policy": "disagree",
     "Cosy-Date": String(ts),
     "Cosy-Key": blob.key,
@@ -117,9 +120,9 @@ function cosyHeaders(url, u, body, ts = Math.floor(Date.now() / 1000)) {
     "Cosy-MachineToken": m,
     "Cosy-MachineType": "5",
     "Cosy-MachineOS": machineOS(),
-    "Cosy-Scene": "app",
+    "Cosy-Scene": site?.modelScene ?? "app",
     "Cosy-User": u.uid,
-    "Cosy-Version": COSY_VERSION,
+    "Cosy-Version": cosyVersion,
     "Login-Version": "v2",
   }
 }
@@ -248,6 +251,12 @@ function vpcSite(site, instance) {
 // public hosts: the account has to be signed in to again.
 function siteOf(site, a) {
   if (a?.vpc === undefined || a?.vpc === null || a?.vpc === "") return site
+  // an account that names a domain outright (QwenWork's enterprise flagship,
+  // which serves web/openapi/api on that one host) routes there
+  if (a.vpcDomain) {
+    const base = `https://${a.vpcDomain}`
+    return { ...site, web: base, openapi: base, api: base, vpc: a.vpcDomain }
+  }
   const s = vpcSite(site, a.vpc)
   if (!s) throw new SignInGone(`${site.name}: the account's VPC instance "${a.vpc}" isn't one; sign in again`)
   return s
@@ -278,9 +287,13 @@ async function deviceSignIn(site) {
         } catch {} // a hiccup: ask again
         await new Promise((r) => setTimeout(r, 2000))
       }
-      const jr = await openapi(site, "/api/v1/me/jobToken", { method: "POST", token: dt.token, body: { clientId: site.clientId } })
+      const jr = site.deviceOnly ? null : await openapi(site, "/api/v1/me/jobToken", { method: "POST", token: dt.token, body: { clientId: site.clientId } })
       let chat
-      if (jr.status === 200) {
+      if (site.deviceOnly) {
+        // the service's device token is itself the chat token, renewed as
+        // one (QwenWork never makes a job token)
+        chat = { access: dt.token, refresh: dt.refresh_token ?? "", expires: deviceExpiry(dt), deviceChat: true }
+      } else if (jr.status === 200) {
         if (!String(jr.json?.token ?? "").trim()) throw new Error(`${site.name} job token: empty token in response`)
         chat = { access: jr.json.token, refresh: jr.json.refresh_token ?? "", expires: expiresAt(jr.json) }
       } else if (site.deviceChat && jr.status >= 400 && jr.status < 500) {
@@ -292,27 +305,32 @@ async function deviceSignIn(site) {
       let name = ""
       let uid = dt.user_id
       try {
-        const ui = await openapi(site, "/api/v1/userinfo", { token: dt.token })
+        const ui = await openapi(site, site.userInfoPath ?? "/api/v1/userinfo", { token: dt.token })
         if (ui.status >= 200 && ui.status < 300) {
-          ;[email, name] = [ui.json?.email ?? "", ui.json?.name ?? ""]
+          const user = site.normalizeUser ? site.normalizeUser(ui.json) : ui.json
+          ;[email, name] = [user?.email ?? "", user?.name ?? ""]
+          if (site.deviceOnly) uid = String(user?.id ?? user?.user_id ?? user?.uid ?? uid ?? "") || undefined
           // a VPC poll may give the token alone: the user is then the one
           // user info names (id, or its user_id / uid aliases)
           if (site.vpc && !String(uid ?? "").trim()) uid = String(ui.json?.id ?? ui.json?.user_id ?? ui.json?.uid ?? "") || undefined
         }
       } catch {}
+      if (site.deviceOnly && !String(uid ?? "").trim()) throw new Error(`${site.name}: the sign-in named no user`)
       if (site.vpc && !String(uid ?? "").trim()) throw new Error(`${site.name} (${site.vpc}): the sign-in named no user`)
       return {
         type: "success",
         ...chat,
-        // a VPC account is told apart from the same person's public one
-        accountId: site.vpc ? `${email || uid} (${site.vpc})` : email || dt.user_id,
+        // a VPC account is told apart from the same person's public one; a
+        // device-only one is shown by name, falling back to its id
+        accountId: site.vpc ? `${email || uid} (${site.vpc})` : site.deviceOnly ? name || email || uid || dt.user_id : email || dt.user_id,
         uid,
-        email,
+        email: site.deviceOnly ? "" : email,
         name: name || dt.user_name || "",
         machineId,
         deviceToken: dt.token,
         deviceRefresh: dt.refresh_token ?? "",
         ...(site.vpc ? { vpc: site.vpc } : {}),
+        ...(site.enterpriseDomain ? { vpc: site.enterpriseDomain, vpcDomain: site.enterpriseDomain } : {}),
       }
     },
   }
@@ -581,8 +599,15 @@ function sceneModels(listing) {
 }
 
 // modelInfos is the listing's enabled models an agent can pick: "auto"
-// and "default" route inside Qoder and aren't one model.
-function modelInfos(listing) {
+// and "default" route inside Qoder and aren't one model. A site with its
+// own scene reads that scene's list; one that lists all models keeps the
+// disabled ones too (QwenWork's qwork scene carries its whole catalog).
+function modelInfos(listing, site) {
+  if (site?.modelScene) {
+    return (Array.isArray(listing?.[site.modelScene]) ? listing[site.modelScene] : [])
+      .filter((m) => (site.listAllModels || m?.enable) && !["", "auto", "default"].includes(String(m.key ?? "").trim()))
+      .map(modelInfo)
+  }
   return sceneModels(listing)
     .filter((m) => m?.enable && !["", "auto", "default"].includes(String(m.key ?? "").trim()))
     .map(modelInfo)
@@ -590,9 +615,15 @@ function modelInfos(listing) {
 
 async function fetchListing(site, cred) {
   const url = site.api + MODELS_PATH
-  const res = await fetch(url, { headers: cosyHeaders(url, cred, ""), signal: AbortSignal.timeout(15_000) })
+  const res = await fetch(url, { headers: cosyHeaders(url, cred, "", site), signal: AbortSignal.timeout(15_000) })
   const text = await res.text()
-  if (!res.ok) throw new Error(`${site.name} models: HTTP ${res.status}: ${text.trim().slice(0, 512)}`)
+  if (!res.ok) {
+    // a service that deploys no catalog at all (QwenWork's enterprise
+    // flagship answers 503 "Model catalog is unavailable") falls back to
+    // the list its site ships
+    if (res.status === 503 && site.fallbackModels) return site.fallbackModels
+    throw new Error(`${site.name} models: HTTP ${res.status}: ${text.trim().slice(0, 512)}`)
+  }
   return JSON.parse(text)
 }
 
@@ -859,10 +890,11 @@ function sessionOf(chat) {
 
 // qoderBody is the plaintext agent_chat_generation takes for a chat
 // completion request, for model m.
-function qoderBody(chat, m) {
+function qoderBody(chat, m, site) {
   const system = (chat.messages ?? []).filter((x) => x.role === "system" || x.role === "developer").map((x) => textOf(x.content)).filter(Boolean).join("\n\n")
   const tools = chat.tool_choice !== "none" ? (chat.tools ?? []).filter((t) => t?.type === "function" && t.function?.name) : []
-  let sysText = system ? QODER_SYS + "\n\n" + system : QODER_SYS
+  const baseSystem = site?.systemPrompt ?? QODER_SYS
+  let sysText = system ? baseSystem + "\n\n" + system : baseSystem
   if (chat.tool_choice === "required" && tools.length) sysText += "\nYou must call an available function in this response."
   const sys = { type: "text", text: sysText }
   const [thinking, effort] = effortFor(chat.reasoning_effort, m)
@@ -877,10 +909,10 @@ function qoderBody(chat, m) {
     chat_record_id: request,
     session_id: sessionOf(chat),
     parameters: params,
-    business: { product: "app", version: COSY_VERSION, type: "agent", id: hexID(), name: "magpie session", begin_at: Date.now(), stage: "start" },
+    business: { product: site?.businessProduct ?? "app", version: site?.cosyVersion ?? COSY_VERSION, type: "agent", id: hexID(), name: "magpie session", begin_at: Date.now(), stage: "start" },
     agent_id: "agent_common",
     task_id: "common",
-    session_type: "app",
+    session_type: site?.sessionType ?? "app",
     model_config: m.config,
     system: [sys],
     messages: [{ role: "system", content: [sys] }, ...cacheMarked(qoderMessages(chat.messages ?? []))],
@@ -1501,7 +1533,7 @@ async function refreshDevice(site, refresh, chat = false) {
   }
   let r
   try {
-    r = await openapi(site, "/api/v1/deviceToken/refresh", { method: "POST", body: { refresh_token: refresh } })
+    r = await openapi(site, "/api/v1/deviceToken/refresh", { method: "POST", body: { refresh_token: refresh, ...(site.deviceRefreshTarget ? { target: site.deviceRefreshTarget } : {}) } })
   } catch (e) {
     throw new Error(`qoder device token refresh: request failed: ${e?.message ?? e}`)
   }
@@ -1715,7 +1747,7 @@ const makePlugin = (site) => async ({ client }) => {
     const key = listingKey(cred)
     let l = listings.get(key)
     if (!l || again) {
-      l = modelInfos(await fetchListing(siteOf(site, cred), cred))
+      l = modelInfos(await fetchListing(siteOf(site, cred), cred), siteOf(site, cred))
       listings.set(key, l)
     }
     return l
@@ -1890,7 +1922,7 @@ const makePlugin = (site) => async ({ client }) => {
     }
     if (!m) return errorResponse({ status: 400, message: `unknown or disabled model "${chat.model}"` })
     const CHAT_URL = siteOf(site, cred).api + CHAT_PATH
-    const wire = encodeBody(JSON.stringify(qoderBody(chat, m)))
+    const wire = encodeBody(JSON.stringify(qoderBody(chat, m, site)))
     const headers = {
       ...cosyHeaders(CHAT_URL, cred, wire),
       Accept: "text/event-stream",
@@ -2069,6 +2101,14 @@ const makePlugin = (site) => async ({ client }) => {
 
 export const QoderAuthPlugin = makePlugin(SITES.qoder)
 export const QoderCNAuthPlugin = makePlugin(SITES["qoder-cn"])
+
+// for another service on this same protocol (QwenWork ships one): the
+// plugin factory and its pieces, a site built as SITES' entries are (see
+// the site fields those hooks read — modelScene, listAllModels, clientType,
+// businessProduct, sessionType, systemPrompt, userInfoPath, normalizeUser,
+// deviceOnly, deviceRefreshTarget, rsaKey, cosyVersion, fallbackModels and
+// the vpcDomain branch of siteOf), and the openapi fetch.
+export const protocol = { makePlugin, deviceSignIn, openapi, siteOf }
 
 // for tests
 export const _internal = { campaignRuntime, campaignPage, campaignTarget, vpcInstance, vpcSite, parseUsage, gfmt, when, failure, modelInfo, qoderBody, qoderMessages, cacheMarked, sessionOf, SITES, decodeBody, events }
