@@ -250,13 +250,13 @@ function vpcSite(site, instance) {
 // is not read as "no VPC", which would send the enterprise's tokens to the
 // public hosts: the account has to be signed in to again.
 function siteOf(site, a) {
-  if (a?.vpc === undefined || a?.vpc === null || a?.vpc === "") return site
   // an account that names a domain outright (QwenWork's enterprise flagship,
   // which serves web/openapi/api on that one host) routes there
-  if (a.vpcDomain) {
+  if (a?.vpcDomain) {
     const base = `https://${a.vpcDomain}`
     return { ...site, web: base, openapi: base, api: base, vpc: a.vpcDomain }
   }
+  if (a?.vpc === undefined || a?.vpc === null || a?.vpc === "") return site
   const s = vpcSite(site, a.vpc)
   if (!s) throw new SignInGone(`${site.name}: the account's VPC instance "${a.vpc}" isn't one; sign in again`)
   return s
